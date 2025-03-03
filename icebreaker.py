@@ -30,16 +30,56 @@ dac_ = Resource("dac", 0, Pins("1 2 3 4 7 8 9 10", dir="o", conn=("pmod", 1)), A
 leds_ = LEDResources(pins={2: "1", 3: "2", 4: "3", 5: "4", 6: "7", 7: "8", 8: "9", 9: "10"}, conn=("pmod", 2),
                       attrs=Attrs(IO_STANDARD="SB_LVCMOS"))
 
+
 ice_rc = rc.RCCircuit(R=R, C=C_, Vdd=Vin, Vref=Vmax)
 ice_lin = rc.AdcLinearizer(ice_rc, res=res, lut_width=lut_width, Hz=Hz)
+
+sweep_rate_hz = 255
+
+
+class DacSweep(Elaboratable):
+    def elaborate(self, plat):
+        m = Module()
+        plat.add_resources([dac_])
+
+        dac = plat.request("dac")
+
+        dac_cnt = Signal(range((12000000 // sweep_rate_hz) + 1))
+        down = Signal(1)
+
+        # DAC sweep code.
+        with m.If(dac_cnt == (12000000 // sweep_rate_hz)):
+            m.d.sync += [
+                dac_cnt.eq(0)
+            ]
+            with m.If(down):
+                m.d.sync += dac.o.eq(dac.o - 1)
+            with m.Else():
+                m.d.sync += dac.o.eq(dac.o + 1)
+
+            with m.If(dac.o == 0):
+                m.d.sync += [
+                    down.eq(0),
+                    dac.o.eq(dac.o + 1)
+                ]
+            # with m.If(dac.o == 255):
+            with m.If(dac.o == 127):
+                m.d.sync += [
+                    down.eq(1),
+                    dac.o.eq(dac.o - 1)
+                ]
+        with m.Else():
+            m.d.sync += dac_cnt.eq(dac_cnt + 1)
+
+        return m
+
 
 class Top(Elaboratable):
     def elaborate(self, plat):
         m = Module()
-        plat.add_resources([adc_, dac_, *leds_])
+        plat.add_resources([adc_, *leds_])
 
         leds = Cat(plat.request("led", i).o for i in range(2, 10))
-        dac = plat.request("dac")
         adc = plat.request("adc")
 
         up_cnt = Signal(range(ice_lin.max_cnt + 1))
@@ -58,13 +98,15 @@ class Top(Elaboratable):
         raw_val = Signal(lut_width)
         mul_done = Signal()
 
-        m.d.comb += leds[3].eq(~latch_cnt)
+        # m.d.comb += leds[3].eq(~latch_cnt)
+
+        sweep = DacSweep()
 
         latched_adc = Signal()
         # The comparator output (from the diff input) is very sensitive. Do not
         # load it more than necessary, and also try to block metastability.
-        m.submodules += FFSynchronizer(adc.sense.i, latched_adc)
-        m.d.comb += leds[0].eq(latched_adc)
+        m.submodules += FFSynchronizer(adc.sense.i, latched_adc), sweep
+        # m.d.comb += leds[0].eq(latched_adc)
 
         with m.If(down):
             m.d.sync += [
@@ -72,7 +114,7 @@ class Top(Elaboratable):
             ]
 
             with m.If(down_cnt == ice_lin.discharge_cnt):
-                m.d.comb += leds[2].eq(1)
+                # m.d.comb += leds[2].eq(1)
                 m.d.sync += [
                     down_cnt.eq(0),
                     down.eq(0),
@@ -100,7 +142,7 @@ class Top(Elaboratable):
                 ]
 
             with m.If(up_cnt == ice_lin.max_cnt):
-                m.d.comb += leds[1].eq(1)
+                # m.d.comb += leds[1].eq(1)
                 m.d.sync += [
                     up_cnt.eq(0),
                     down.eq(1),
@@ -115,7 +157,7 @@ class Top(Elaboratable):
                 do_mul.eq(0)
             ]
 
-        # m.d.comb += dac.o.eq(raw_val)
+        # m.d.comb += leds.eq(raw_val >> 1)
 
         # print(ice_lin.lut_entries)
         mem_data = MemoryData(shape=res, depth=2**ice_lin.lut_width, init=ice_lin.lut_entries)
@@ -127,31 +169,8 @@ class Top(Elaboratable):
             r_port.addr.eq(raw_val)
         ]
 
-        # m.d.comb += dac.o.eq(r_port.data)
-        # m.submodules += mem
-
-        # DAC sweep code.
-        # with m.If(dac_cnt == (12000000 // sweep_rate_hz)):
-        #     m.d.sync += [
-        #         dac_cnt.eq(0)
-        #     ]
-        #     with m.If(down):
-        #         m.d.sync += dac.o.eq(dac.o - 1)
-        #     with m.Else():
-        #         m.d.sync += dac.o.eq(dac.o + 1)
-
-        #     with m.If(down_cnt == ):
-        #         m.d.sync += [
-        #             down.eq(0),
-        #             dac.o.eq(dac.o + 1)
-        #         ]
-        #     with m.If(dac.o == 255):
-        #         m.d.sync += [
-        #             down.eq(1),
-        #             dac.o.eq(dac.o - 1)
-        #         ]
-        # with m.Else():
-        #     m.d.sync += dac_cnt.eq(dac_cnt + 1)
+        m.d.comb += leds.eq(r_port.data)
+        m.submodules += mem
 
         return m
 
@@ -162,5 +181,3 @@ if __name__ == "__main__":
 
     with prod.extract("top.bin") as bitstream_filename:
         subprocess.check_call(["openFPGALoader", "-b", "ice40_generic", bitstream_filename])
-
-
