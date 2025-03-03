@@ -93,12 +93,8 @@ class Top(Elaboratable):
 
         down = Signal(1)
         zero_run = Signal(4)
-        latch_cnt = Signal(1)
-        do_mul = Signal(1)
+        latched_cnt = Signal(1)
         raw_val = Signal(lut_width)
-        mul_done = Signal()
-
-        # m.d.comb += leds[3].eq(~latch_cnt)
 
         sweep = DacSweep()
 
@@ -106,7 +102,6 @@ class Top(Elaboratable):
         # The comparator output (from the diff input) is very sensitive. Do not
         # load it more than necessary, and also try to block metastability.
         m.submodules += FFSynchronizer(adc.sense.i, latched_adc), sweep
-        # m.d.comb += leds[0].eq(latched_adc)
 
         with m.If(down):
             m.d.sync += [
@@ -118,9 +113,7 @@ class Top(Elaboratable):
                 m.d.sync += [
                     down_cnt.eq(0),
                     down.eq(0),
-                    latch_cnt.eq(0),
-                    mul_done.eq(0),
-                    do_mul.eq(0)
+                    latched_cnt.eq(0),
                 ]
 
         with m.Else():
@@ -135,10 +128,10 @@ class Top(Elaboratable):
             with m.Else():
                 m.d.sync += zero_run.eq(0)
 
-            with m.If(zero_run == 2):
+            with m.If((zero_run == 2) & ~latched_cnt):
                 m.d.sync += [
-                    latch_cnt.eq(1),
-                    do_mul.eq(1)
+                    raw_val.eq((((up_cnt - 1) >> ice_lin.clk_shift_amt) * ice_lin.conv_factor) >> (ice_lin.conv_precision)),
+                    latched_cnt.eq(1)
                 ]
 
             with m.If(up_cnt == ice_lin.max_cnt):
@@ -148,15 +141,6 @@ class Top(Elaboratable):
                     down.eq(1),
                     zero_run.eq(0),
                 ]
-
-        with m.If(do_mul & ~mul_done):
-            m.d.sync += [
-                # Minus one to simulate that we latched last cycle.
-                raw_val.eq((((up_cnt - 1) >> ice_lin.clk_shift_amt) * ice_lin.conv_factor) >> (ice_lin.conv_precision)),
-                mul_done.eq(1),
-                do_mul.eq(0)
-            ]
-
         # m.d.comb += leds.eq(raw_val >> 1)
 
         # print(ice_lin.lut_entries)
