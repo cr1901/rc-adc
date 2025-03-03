@@ -29,6 +29,11 @@ adc_ = Resource("adc", 0,
 dac_ = Resource("dac", 0, Pins("1 2 3 4 7 8 9 10", dir="o", conn=("pmod", 1)), Attrs(IO_STANDARD="SB_LVCMOS"))
 leds_ = LEDResources(pins={2: "1", 3: "2", 4: "3", 5: "4", 6: "7", 7: "8", 8: "9", 9: "10"}, conn=("pmod", 2),
                       attrs=Attrs(IO_STANDARD="SB_LVCMOS"))
+debug_ = Resource("debug", 0,
+    Subsignal("latched",     Pins("10", dir="o", conn=("pmod", 0))),
+    Subsignal("sense",     Pins("4", dir="o", conn=("pmod", 0))),
+    Subsignal("start",     Pins("9", dir="o", conn=("pmod", 0))),
+)
 
 
 ice_rc = rc.RCCircuit(R=R, C=C_, Vdd=Vin, Vref=Vmax)
@@ -77,10 +82,11 @@ class DacSweep(Elaboratable):
 class Top(Elaboratable):
     def elaborate(self, plat):
         m = Module()
-        plat.add_resources([adc_, *leds_])
+        plat.add_resources([adc_, *leds_, debug_])
 
         leds = Cat(plat.request("led", i).o for i in range(2, 10))
         adc = plat.request("adc")
+        # debug = plat.request("debug")
 
         up_cnt = Signal(range(ice_lin.max_cnt + 1))
         # In theory, we can discharge the capacitor immediately by disabling
@@ -130,7 +136,7 @@ class Top(Elaboratable):
 
             with m.If((zero_run == 2) & ~latched_cnt):
                 m.d.sync += [
-                    raw_val.eq((((up_cnt - 1) >> ice_lin.clk_shift_amt) * ice_lin.conv_factor) >> (ice_lin.conv_precision)),
+                    raw_val.eq(((up_cnt >> ice_lin.clk_shift_amt) * ice_lin.conv_factor) >> (ice_lin.conv_precision)),
                     latched_cnt.eq(1)
                 ]
 
@@ -141,9 +147,9 @@ class Top(Elaboratable):
                     down.eq(1),
                     zero_run.eq(0),
                 ]
-        # m.d.comb += leds.eq(raw_val >> 1)
+        # m.d.comb += leds.eq(raw_val)
 
-        # print(ice_lin.lut_entries)
+        print(ice_lin.lut_entries)
         mem_data = MemoryData(shape=res, depth=2**ice_lin.lut_width, init=ice_lin.lut_entries)
         mem = Memory(mem_data)
         r_port = mem.read_port()
@@ -155,6 +161,12 @@ class Top(Elaboratable):
 
         m.d.comb += leds.eq(r_port.data)
         m.submodules += mem
+
+        # m.d.comb += [
+        #     leds[4].eq(latched_cnt),
+        #     leds[5].eq(latched_adc),
+        #     leds[6].eq(down_cnt == ice_lin.discharge_cnt)
+        # ]
 
         return m
 
