@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.egg-info
+/dist
+
+# pdm
+/.pdm-plugins
+/.pdm-python
+/.venv
+# Part of dynamic version generation.
+/src/rc-adc/version.txt
+
+# pytest
+/.pytest_cache
+
+# Amaranth
+/build*
+
+# GtkWave
+*.vcd
+*.gtkw
+
+# Doit
+.doit.db.*
+
+# YoWASP setup
+.env.toolchain

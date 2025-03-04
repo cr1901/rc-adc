@@ -1,6 +1,9 @@
 import math
 
 
+# TODO: Check max current draw. For a given C, max current across R needs to
+# be less than the I/O's drive.
+
 class RCCircuit:
     def __init__(self, R, C, Vdd, Vref):
         self.RC = R * C

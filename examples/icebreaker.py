@@ -8,7 +8,7 @@ from amaranth_boards.icebreaker import ICEBreakerPlatform
 from amaranth.build import Resource, Pins, Attrs, Subsignal, DiffPairs
 from amaranth_boards.resources import LEDResources
 
-import rc
+import rc_adc as rc
 
 adc_ = Resource("adc", 0,
                 Subsignal("ctrl",  Pins("2", dir="o", conn=("pmod", 0))),

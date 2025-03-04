@@ -1,0 +1,113 @@
+[project]
+name = "rc-adc"
+description = "Amaranth Core IP Template optimized for cr1901's workflow"
+authors = [
+    {name = "William D. Jones", email = "thor0505@comcast.net"},
+]
+dependencies = [
+    "amaranth>=0.5.3",
+]
+requires-python = ">=3.9"
+readme = "README.md"
+license = {text = "BSD-2-Clause license"}
+dynamic = ["version"]
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "src/",
+]
+required_plugins = "pytest-amaranth-sim"
+
+[tool.ruff]
+src = [ "src", "tests" ]  # https://docs.astral.sh/ruff/faq/#how-does-ruff-determine-which-of-my-imports-are-first-party-third-party-etc
+line-length = 79  # flake8 compat
+
+# Also, accept the risks of preview mode to try the unstable E checks and pydoclint support.
+# These will also catch missing docstrings and other nits, which pydoclint doesn't.
+[tool.ruff.lint]
+preview = true
+extend-select = ["E1", "E2", "E3", "RUF100", "E5", "W", "D", "DOC"]
+pydocstyle.convention = "numpy"
+pycodestyle.max-line-length = 79  # flake8 compat
+
+[tool.ruff.lint.per-file-ignores]
+# Tolerate missing strings for tests- they are not a public API.
+"tests/**/*.py" = ["D10"]
+
+[tool.pdm.build]
+includes = [
+    "src/rc_adc",
+]
+# README.md and LICENSE.md seem to be included already.
+source-includes = [
+    ".gitignore",
+    "CHANGELOG.md",
+    "tests",
+]
+
+[tool.pdm.version]
+source = "scm"
+write_to = "rc_adc/version.txt"
+
+[tool.pdm.scripts]
+_.env_file = ".env.toolchain"
+
+# Lint
+lint = { cmd = "ruff check", help = "lint Python and Rust sources" }
+
+# Tests
+test = { cmd = "pytest", help="run all pytest tests" }
+
+# Docs
+doc = { cmd = "sphinx-build docs/ docs/_build/" }
+doc-test = "sphinx-build -b doctest docs/ docs/_build"
+doc-linkck = "sphinx-build docs/ docs/_linkcheck/ -b linkcheck"
+doc-auto = "sphinx-autobuild docs/ docs/_build/ --watch src/rc_adc --watch examples"
+
+# DoIt wrappers. Prefer using these over running DoIt directly.
+doit = { cmd = "doit", help="escape hatch to call doit directly" }
+
+# YoWASP
+use-yowasp = { cmd = "doit prepare_yowasp", help="prepare pdm and tools to use YoWASP binaries" }
+use-local.cmd = "doit clean prepare_yowasp"
+use-local.help = "revert \"use-yowasp\" changes; use local binaries"
+
+[tool.pdm.scripts._add-ruff]
+cmd = "pdm add --dev -G lint ruff"
+env = { CARGO_PROFILE_RELEASE_LTO="false" }
+help = "add Ruff linter on MSYS2- work around Rust issue #109797"
+
+[tool.pdm.scripts._update-ruff]
+cmd = "pdm update --dev -G lint ruff"
+env = { CARGO_PROFILE_RELEASE_LTO="false" }
+help = "update Ruff linter on MSYS2- work around Rust issue #109797"
+
+[dependency-groups]
+doc = [
+    "sphinx>=7.2.6",
+    "sphinx-rtd-theme>=2.0.0",
+    "myst-parser>=2.0.0",
+    "sphinx-autobuild>=2024.2.4",
+]
+dev = [
+    "amaranth-soc @ git+https://github.com/amaranth-lang/amaranth-soc",
+    "pytest>=7.4.2",
+    "doit>=0.36.0",
+    "pytest-amaranth-sim>=0.1.0",
+]
+examples = [
+    "amaranth-soc @ git+https://github.com/amaranth-lang/amaranth-soc",
+    "amaranth-boards @ git+https://github.com/amaranth-lang/amaranth-boards",
+]
+lint = [
+    "ruff>=0.6.7",
+]
+yowasp = [
+    "amaranth[builtin-yosys]>=0.5.3",
+    "yowasp-yosys>=0.47.0.0.post805",
+    "yowasp-nextpnr-ice40>=0.7.0.0.post519",
+]
