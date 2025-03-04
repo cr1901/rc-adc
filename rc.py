@@ -1,5 +1,5 @@
 import math
-# from amaranth
+
 
 class RCCircuit:
     def __init__(self, R, C, Vdd, Vref):
@@ -14,7 +14,8 @@ class RCCircuit:
         return self.RC * 6
 
     def charge_time(self, Vc_begin, Vc_end):
-        return -self.RC*math.log(1 - ((Vc_end - Vc_begin)/(self.Vdd - Vc_begin)))
+        return -self.RC*math.log(1 - ((Vc_end - Vc_begin) /
+                                      (self.Vdd - Vc_begin)))
 
     def Vout(self, t, Vc_begin):
         return (self.Vdd - Vc_begin)*(1 - math.exp(-t/self.RC)) + Vc_begin
@@ -35,7 +36,7 @@ class AdcLinearizer:
 
         # 0..max_clocks => 0..2**lut_width - 1
         self.conv_factor = int(2**lut_width * 2**self.conv_precision) // \
-            (self.max_cnt >> self.clk_shift_amt)  # Qlut_width.conv_precision // Qlut_width.0
+            (self.max_cnt >> self.clk_shift_amt)  # Qlut_width.conv_precision // Qlut_width.0  # noqa: E501
 
         self.lut_entries = []
         self.raw_entries = []
@@ -66,7 +67,8 @@ class AdcLinearizer:
         return int(math.ceil(self.Hz*self.discharge_time))
 
     def cnt_to_digital(self, t):
-        idx = math.floor((t >> self.clk_shift_amt) * self.conv_factor) >> self.conv_precision
+        idx = math.floor((t >> self.clk_shift_amt) * self.conv_factor) >> \
+              self.conv_precision
         return self.lut_entries[idx]
 
     def cnt_to_V(self, t):

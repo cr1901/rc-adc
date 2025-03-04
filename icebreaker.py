@@ -1,28 +1,29 @@
 import subprocess
-import sys
 from dataclasses import dataclass
 
 from amaranth.lib.cdc import FFSynchronizer
-from amaranth import *
+from amaranth import Module, Elaboratable, Cat, Signal
 from amaranth.lib.memory import MemoryData, Memory
 from amaranth_boards.icebreaker import ICEBreakerPlatform
 from amaranth.build import Resource, Pins, Attrs, Subsignal, DiffPairs
-from amaranth_boards.resources import *
+from amaranth_boards.resources import LEDResources
 
 import rc
 
 adc_ = Resource("adc", 0,
-    Subsignal("ctrl",     Pins("2", dir="o", conn=("pmod", 0))),
-    Subsignal("sense",    DiffPairs("1", "7", dir="i", conn=("pmod", 0)), Attrs(IO_STANDARD="SB_LVDS_INPUT"))
-)
-dac_ = Resource("dac", 0, Pins("1 2 3 4 7 8 9 10", dir="o", conn=("pmod", 1)), Attrs(IO_STANDARD="SB_LVCMOS"))
-leds_ = LEDResources(pins={2: "1", 3: "2", 4: "3", 5: "4", 6: "7", 7: "8", 8: "9", 9: "10"}, conn=("pmod", 2),
-                      attrs=Attrs(IO_STANDARD="SB_LVCMOS"))
+                Subsignal("ctrl",  Pins("2", dir="o", conn=("pmod", 0))),
+                Subsignal("sense", DiffPairs("1", "7", dir="i",
+                                             conn=("pmod", 0)),
+                          Attrs(IO_STANDARD="SB_LVDS_INPUT")))
+dac_ = Resource("dac", 0, Pins("1 2 3 4 7 8 9 10", dir="o", conn=("pmod", 1)),
+                Attrs(IO_STANDARD="SB_LVCMOS"))
+leds_ = LEDResources(pins={2: "1", 3: "2", 4: "3", 5: "4",
+                           6: "7", 7: "8", 8: "9", 9: "10"}, conn=("pmod", 2),
+                     attrs=Attrs(IO_STANDARD="SB_LVCMOS"))
 debug_ = Resource("debug", 0,
-    Subsignal("latched",     Pins("10", dir="o", conn=("pmod", 0))),
-    Subsignal("sense",     Pins("4", dir="o", conn=("pmod", 0))),
-    Subsignal("start",     Pins("9", dir="o", conn=("pmod", 0))),
-)
+                  Subsignal("latched", Pins("10", dir="o", conn=("pmod", 0))),
+                  Subsignal("sense",   Pins("4", dir="o", conn=("pmod", 0))),
+                  Subsignal("start",   Pins("9", dir="o", conn=("pmod", 0))))
 
 
 @dataclass
@@ -108,6 +109,10 @@ class RcAdc(Elaboratable):
                                     params.Hz)
         self.raw = raw
 
+    @property
+    def sample_rate(self):
+        return 1/(self.rc.charge_time_max() + self.rc.drain_time_max())
+
     def elaborate(self, plat):
         m = Module()
         plat.add_resources([adc_, *leds_, debug_])
@@ -162,7 +167,9 @@ class RcAdc(Elaboratable):
 
             with m.If((zero_run == 2) & ~latched_cnt):
                 m.d.sync += [
-                    raw_val.eq(((up_cnt >> self.lin.clk_shift_amt) * self.lin.conv_factor) >> (self.lin.conv_precision)),
+                    raw_val.eq(((up_cnt >> self.lin.clk_shift_amt) *
+                                self.lin.conv_factor) >>
+                               (self.lin.conv_precision)),
                     latched_cnt.eq(1)
                 ]
 
@@ -174,7 +181,7 @@ class RcAdc(Elaboratable):
                     zero_run.eq(0),
                 ]
 
-        print(self.lin.lut_entries)
+        # print(self.lin.lut_entries)
         if self.raw:
             m.d.comb += leds.eq(raw_val[-8:])
         else:
@@ -216,7 +223,9 @@ if __name__ == "__main__":
     top = Module()
     top.submodules += adc, sweep
 
+    print(adc.sample_rate)
     prod = plat.build(top, debug_verilog=True)
 
     with prod.extract("top.bin") as bitstream_filename:
-        subprocess.check_call(["openFPGALoader", "-b", "ice40_generic", bitstream_filename])
+        subprocess.check_call(["openFPGALoader", "-b", "ice40_generic",
+                               bitstream_filename])
