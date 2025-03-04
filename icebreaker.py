@@ -70,11 +70,14 @@ class DacSweep(Elaboratable):
 
         dac = plat.request("dac")
 
-        dac_cnt = Signal(range(int(self.clk_Hz // self.sweep_Hz) + 1))
+        # A sweep takes twices as many transitions as a ramp from 0 to max
+        sweep_max = int((self.clk_Hz // (self.peak_val * self.sweep_Hz))) // 2
+
+        dac_cnt = Signal(range(sweep_max + 1))
         down = Signal(1)
 
         # DAC sweep code.
-        with m.If(dac_cnt == int(self.clk_Hz // self.sweep_Hz)):
+        with m.If(dac_cnt == sweep_max):
             m.d.sync += [
                 dac_cnt.eq(0)
             ]
@@ -211,13 +214,14 @@ class RcAdc(Elaboratable):
 if __name__ == "__main__":
     plat = ICEBreakerPlatform()
 
+    # Make sure to measure R and C_... The ADC is sensitive to its values!
     # R = 1e5
     # C_ = 1e-9
-    adc_params = AdcParams(R=0.996e5, C=0.893e-9, Vdd=3.3, Vref=(3.3/2), res=8,
+    adc_params = AdcParams(R=0.996e5, C=0.893e-9, Vdd=3.3, Vref=3.3/2, res=8,
                            Hz=12e6, lut_width=9)
     adc = RcAdc(adc_params, raw=False)
-    sweep_params = SweepParams(Vdd=3.3, Vref=(3.3/2), clk_Hz=12e6,
-                               sweep_Hz=255)
+    sweep_params = SweepParams(Vdd=3.3, Vref=3.3/2, clk_Hz=12e6,
+                               sweep_Hz=1)
     sweep = DacSweep(sweep_params)
 
     top = Module()
