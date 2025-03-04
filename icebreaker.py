@@ -55,10 +55,9 @@ class SweepParams:
     sweep_Hz: int
 
 
-sweep_rate_hz = 255
-
-
 class DacSweep(Elaboratable):
+    """Triangle-wave signal sweep for PMOD R2R."""
+
     def __init__(self, params: SweepParams):
         self.peak_val = int(255 * (params.Vref / params.Vdd))
         self.clk_Hz = params.clk_Hz
@@ -70,11 +69,11 @@ class DacSweep(Elaboratable):
 
         dac = plat.request("dac")
 
-        dac_cnt = Signal(range(int(self.clk_Hz // (2*self.sweep_Hz)) + 1))
+        dac_cnt = Signal(range(int(self.clk_Hz // self.sweep_Hz) + 1))
         down = Signal(1)
 
         # DAC sweep code.
-        with m.If(dac_cnt == int(self.clk_Hz // (2*self.sweep_Hz))):
+        with m.If(dac_cnt == int(self.clk_Hz // self.sweep_Hz)):
             m.d.sync += [
                 dac_cnt.eq(0)
             ]
@@ -100,12 +99,14 @@ class DacSweep(Elaboratable):
         return m
 
 
-class Top(Elaboratable):
-    def __init__(self, params: AdcParams):
+class RcAdc(Elaboratable):
+    """RC Circuit-Based Analog-to-Digital Converter."""
+
+    def __init__(self, params: AdcParams, raw: bool):
         self.rc = rc.RCCircuit(params.R, params.C, params.Vdd, params.Vref)
         self.lin = rc.AdcLinearizer(self.rc, params.res, params.lut_width,
                                     params.Hz)
-
+        self.raw = raw
 
     def elaborate(self, plat):
         m = Module()
@@ -129,14 +130,10 @@ class Top(Elaboratable):
         latched_cnt = Signal(1)
         raw_val = Signal(self.lin.lut_width)
 
-        sweep_params = SweepParams(self.rc.Vdd, self.rc.Vdd/2,
-                                   self.lin.Hz, 255)
-        sweep = DacSweep(sweep_params)
-
         latched_adc = Signal()
         # The comparator output (from the diff input) is very sensitive. Do not
         # load it more than necessary, and also try to block metastability.
-        m.submodules += FFSynchronizer(adc.sense.i, latched_adc), sweep
+        m.submodules += FFSynchronizer(adc.sense.i, latched_adc)
 
         with m.If(down):
             m.d.sync += [
@@ -176,21 +173,24 @@ class Top(Elaboratable):
                     down.eq(1),
                     zero_run.eq(0),
                 ]
-        # m.d.comb += leds.eq(raw_val)
 
         print(self.lin.lut_entries)
-        mem_data = MemoryData(shape=self.lin.res, depth=2**self.lin.lut_width,
-                              init=self.lin.lut_entries)
-        mem = Memory(mem_data)
-        r_port = mem.read_port()
+        if self.raw:
+            m.d.comb += leds.eq(raw_val[-8:])
+        else:
+            mem_data = MemoryData(shape=self.lin.res,
+                                  depth=2**self.lin.lut_width,
+                                  init=self.lin.lut_entries)
+            mem = Memory(mem_data)
+            r_port = mem.read_port()
 
-        m.d.comb += [
-            r_port.en.eq(1),
-            r_port.addr.eq(raw_val)
-        ]
+            m.d.comb += [
+                r_port.en.eq(1),
+                r_port.addr.eq(raw_val)
+            ]
 
-        m.d.comb += leds.eq(r_port.data)
-        m.submodules += mem
+            m.d.comb += leds.eq(r_port.data)
+            m.submodules += mem
 
         # m.d.comb += [
         #     leds[4].eq(latched_cnt),
@@ -208,7 +208,15 @@ if __name__ == "__main__":
     # C_ = 1e-9
     adc_params = AdcParams(R=0.996e5, C=0.893e-9, Vdd=3.3, Vref=(3.3/2), res=8,
                            Hz=12e6, lut_width=9)
-    prod = plat.build(Top(adc_params), debug_verilog=True)
+    adc = RcAdc(adc_params, raw=False)
+    sweep_params = SweepParams(Vdd=3.3, Vref=(3.3/2), clk_Hz=12e6,
+                               sweep_Hz=255)
+    sweep = DacSweep(sweep_params)
+
+    top = Module()
+    top.submodules += adc, sweep
+
+    prod = plat.build(top, debug_verilog=True)
 
     with prod.extract("top.bin") as bitstream_filename:
         subprocess.check_call(["openFPGALoader", "-b", "ice40_generic", bitstream_filename])
