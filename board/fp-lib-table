@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "pmod-rc")(type "KiCad")(uri "${KIPRJMOD}/pmod-rc.pretty")(options "")(descr ""))
+)
