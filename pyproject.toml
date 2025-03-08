@@ -1,6 +1,6 @@
 [project]
 name = "rc-adc"
-description = "Amaranth Core IP Template optimized for cr1901's workflow"
+description = "Resistor Capacitor Analog-to-Digital Converter, written in Amaranth."
 authors = [
     {name = "William D. Jones", email = "thor0505@comcast.net"},
 ]
@@ -21,6 +21,7 @@ pythonpath = [
   "src/",
 ]
 required_plugins = "pytest-amaranth-sim"
+extend_vcd_time = "41666666"  # extend by half a 12MHz period.
 
 [tool.ruff]
 src = [ "src", "tests" ]  # https://docs.astral.sh/ruff/faq/#how-does-ruff-determine-which-of-my-imports-are-first-party-third-party-etc
