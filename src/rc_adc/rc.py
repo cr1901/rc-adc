@@ -63,11 +63,21 @@ class AdcLinearizer:
 
     @property
     def max_cnt(self):
-        return int(math.ceil(self.Hz*self.max_time))
+        """Return number of clocks to charge, rounded up.
+
+        Pass this count as a :class:`range` to the
+        :ref:`Signal <amaranth:lang-signals>` constructor.
+        """
+        return int(math.ceil(self.Hz * self.max_time))
 
     @property
     def discharge_cnt(self):
-        return int(math.ceil(self.Hz*self.discharge_time))
+        """Return number of clocks to discharge, rounded up.
+
+        Pass this count as a :class:`range` to the
+        :ref:`Signal <amaranth:lang-signals>` constructor.
+        """
+        return int(math.ceil(self.Hz * self.discharge_time))
 
     def cnt_to_digital(self, t):
         idx = math.floor((t >> self.clk_shift_amt) * self.conv_factor) >> \

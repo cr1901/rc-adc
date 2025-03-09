@@ -24,13 +24,13 @@ def test_overflow(sim, mod):
         ctx.set(mod.io.sense, 1)
         await ctx.tick().repeat(140)
         ctx.set(mod.io.sense, 0)
-        await ctx.tick().repeat(mod.lin.max_cnt - 140 + 1)
+        await ctx.tick().repeat(mod.lin.max_cnt - 140)
 
-        dat, = await ctx.tick().sample(mod.data.val).repeat(mod.lin.discharge_cnt + 1)
+        dat, = await ctx.tick().sample(mod.data.val).repeat(mod.lin.discharge_cnt)
         ctx.set(mod.io.sense, 1)
         assert dat == 0x3f
 
-        dat, = await ctx.tick().sample(mod.data.val).repeat(mod.lin.max_cnt + 1)
+        dat, = await ctx.tick().sample(mod.data.val).repeat(mod.lin.max_cnt)
         assert dat == 255
 
     sim.run(testbenches=[tb])

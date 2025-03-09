@@ -56,6 +56,7 @@ if __name__ == "__main__":
     ]
 
     print(adc.sample_rate)
+    print(adc.sample_rate_theoretical)
     prod = plat.build(top, debug_verilog=True)
 
     with prod.extract("top.bin") as bitstream_filename:
