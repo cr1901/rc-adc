@@ -1,10 +1,32 @@
 from dataclasses import dataclass
 
 from amaranth.lib.cdc import FFSynchronizer
-from amaranth import Module, Elaboratable, Signal
+from amaranth.lib.data import StructLayout
+from amaranth.lib.enum import Enum
+from amaranth.lib.wiring import Signature, In, Out, Component
+from amaranth import Module, Signal, unsigned
 from amaranth.lib.memory import MemoryData, Memory
 
 from . import rc
+
+
+def adc_value_layout(params):
+    return StructLayout({
+        "val": unsigned(params.res),
+        # Overflow
+        "ov": unsigned(1)
+    })
+
+
+def adc_ctrl_signature():
+    return Signature({
+        # Begin charging to get ADC value.
+        "start": Out(1),
+        # Valid value available.
+        "avail": In(1),
+        # Charge/discharge cycle done.
+        "done": In(1),
+    })
 
 
 @dataclass
@@ -25,8 +47,13 @@ class AdcParams:
     Hz: int
 
 
-class RcAdc(Elaboratable):
+class RcAdc(Component):
     """RC Circuit-Based Analog-to-Digital Converter."""
+
+    class _State(Enum):
+        # IDLE = 0b01
+        CHARGE = 0b10
+        DISCHARGE = 0b11
 
     def __init__(self, params: AdcParams, raw: bool):
         self.rc = rc.RCCircuit(params.R, params.C, params.Vdd, params.Vref)
@@ -34,16 +61,24 @@ class RcAdc(Elaboratable):
                                     params.Hz)
         self.raw = raw
 
-        self.sense = Signal(1)
-        self.ctrl = Signal(1)
-        self.out = Signal(params.res)
+        super().__init__({
+            "io": Out(Signature({
+                "sense": In(1),
+                "charge": Out(1)
+            })),
+            "data": Out(adc_value_layout(params)),
+            "ctrl": In(adc_ctrl_signature())
+        })
 
     @property
     def sample_rate(self):
-        return 1/(self.rc.charge_time_max() + self.rc.drain_time_max())
+        """Return the sample rate of the constructed ADC."""
+        return 1 / (self.rc.charge_time_max() + self.rc.drain_time_max())
 
     def elaborate(self, plat):  # noqa: D102
         m = Module()
+
+        state = Signal(RcAdc._State, init=RcAdc._State.DISCHARGE)
 
         up_cnt = Signal(range(self.lin.max_cnt + 1))
         # In theory, we can discharge the capacitor immediately by disabling
@@ -53,8 +88,9 @@ class RcAdc(Elaboratable):
         # Discharging slowly gives a triangle-like wave with better harmonics
         # (at the cost of having to wait).
         down_cnt = Signal(range(self.lin.discharge_cnt + 1))
+        done_stb = Signal(1)
+        done_reg = Signal(1)
 
-        down = Signal(1)
         zero_run = Signal(4)
         latched_cnt = Signal(1)
         raw_val = Signal(self.lin.lut_width)
@@ -62,29 +98,42 @@ class RcAdc(Elaboratable):
         latched_adc = Signal()
         # The comparator output (from the diff input) is very sensitive. Do not
         # load it more than necessary, and also try to block metastability.
-        m.submodules += FFSynchronizer(self.sense, latched_adc)
+        m.submodules += FFSynchronizer(self.io.sense, latched_adc)
 
-        with m.If(down):
-            m.d.sync += [
-                down_cnt.eq(down_cnt + 1)
-            ]
+        m.d.comb += self.ctrl.done.eq(done_stb | done_reg)
+
+        with m.If(state == RcAdc._State.DISCHARGE):
+            m.d.comb += self.io.charge.eq(0)
+            m.d.sync += down_cnt.eq(down_cnt + 1)
 
             with m.If(down_cnt == self.lin.discharge_cnt):
+                m.d.comb += done_stb.eq(1)
                 # m.d.comb += self.out[2].eq(1)
                 m.d.sync += [
                     down_cnt.eq(0),
-                    down.eq(0),
                     latched_cnt.eq(0),
+                    done_reg.eq(1)
                 ]
 
-        with m.Else():
-            m.d.comb += self.ctrl.eq(1)
+            with m.If(self.ctrl.start & self.ctrl.done):
+                m.d.sync += [
+                    state.eq(RcAdc._State.CHARGE),
+                    self.ctrl.avail.eq(0),
+                    done_reg.eq(0)
+                ]
 
+        with m.Elif(state == RcAdc._State.CHARGE):
+            m.d.comb += self.io.charge.eq(1)
             m.d.sync += [
                 up_cnt.eq(up_cnt + 1),
+                # TODO: If using multicycle linearizer, conversion will take
+                # more than one cycle. In this case, latched_cnt is a ready
+                # strobe for the multiplier (and assumes multiplication takes
+                # fewer cycles than the sampling period).
+                self.ctrl.avail.eq(latched_cnt)
             ]
 
-            with m.If(self.sense == 0):
+            with m.If(self.io.sense == 0):
                 m.d.sync += zero_run.eq(zero_run + 1)
             with m.Else():
                 m.d.sync += zero_run.eq(0)
@@ -101,13 +150,13 @@ class RcAdc(Elaboratable):
                 # m.d.comb += self.out[1].eq(1)
                 m.d.sync += [
                     up_cnt.eq(0),
-                    down.eq(1),
+                    state.eq(RcAdc._State.DISCHARGE),
                     zero_run.eq(0),
                 ]
 
         # print(self.lin.lut_entries)
         if self.raw:
-            m.d.comb += self.out.eq(raw_val[-8:])
+            m.d.comb += self.data.val.eq(raw_val[-8:])
         else:
             mem_data = MemoryData(shape=self.lin.res,
                                   depth=2**self.lin.lut_width,
@@ -120,7 +169,7 @@ class RcAdc(Elaboratable):
                 r_port.addr.eq(raw_val)
             ]
 
-            m.d.comb += self.out.eq(r_port.data)
+            m.d.comb += self.data.val.eq(r_port.data)
             m.submodules += mem
 
         # m.d.comb += [

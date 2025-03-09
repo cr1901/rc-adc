@@ -48,10 +48,11 @@ if __name__ == "__main__":
     # debug = plat.request("debug")
 
     top.d.comb += [
+        adc.ctrl.start.eq(1),
         dac.o.eq(sweep.dac),
-        adc.sense.eq(adc_pins.sense.i),
-        adc_pins.ctrl.o.eq(adc.ctrl),
-        leds.eq(adc.out)
+        adc.io.sense.eq(adc_pins.sense.i),
+        adc_pins.ctrl.o.eq(adc.io.charge),
+        leds.eq(adc.data.val)
     ]
 
     print(adc.sample_rate)
