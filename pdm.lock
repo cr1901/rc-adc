@@ -5,7 +5,7 @@
 groups = ["default", "dev", "doc", "examples", "lint", "yowasp"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:b63fcebbaeaf5c06817152fcbb6055e5408391fc0f61e75125f6bccc1e6a4872"
+content_hash = "sha256:bd11de8cfa34fc073d7280a351515989fbc7c7602539529a8c1a64c1043e0b6a"
 
 [[metadata.targets]]
 requires_python = ">=3.9"
@@ -58,6 +58,18 @@ git = "https://github.com/amaranth-lang/amaranth-soc"
 revision = "5c43cf58f15d9cd9c69ff83c97997708d386b2dc"
 summary = "System on Chip toolkit for Amaranth HDL"
 groups = ["dev", "examples"]
+dependencies = [
+    "amaranth<0.6,>=0.5",
+]
+
+[[package]]
+name = "amaranth-stdio"
+version = "0.1.dev36"
+requires_python = "~=3.9"
+git = "https://github.com/amaranth-lang/amaranth-stdio"
+revision = "618a13fb7108f69197d698df4d64c203553deaae"
+summary = "Industry standard I/O for Amaranth HDL"
+groups = ["examples"]
 dependencies = [
     "amaranth<0.6,>=0.5",
 ]

@@ -14,7 +14,7 @@ class RCCircuit:
         return self.charge_time(0, self.Vref)
 
     def drain_time_max(self):
-        return self.RC * 6
+        return self.RC * 10
 
     def charge_time(self, Vc_begin, Vc_end):
         return -self.RC*math.log(1 - ((Vc_end - Vc_begin) /
