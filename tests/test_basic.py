@@ -11,7 +11,7 @@ def res():
 @pytest.fixture
 def mod(clks, res):
     adc_params = AdcParams(R=0.996e5, C=0.893e-9, Vdd=3.3, Vref=3.3 / 2,
-                           res=res, Hz=1.0 / clks, lut_width=9)
+                           res=res, Hz=1.0 / clks, lut_width=9, thresh=0.0)
     return RcAdc(adc_params, raw=False)
 
 

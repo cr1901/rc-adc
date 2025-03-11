@@ -45,6 +45,8 @@ class AdcParams:
     lut_width: int
     #: Clock speed of ADC.
     Hz: int
+    #: Approximate diff voltage at which comparator turns on (~60-150mV).
+    thresh: float
 
 
 class RcAdc(Component):
@@ -58,7 +60,7 @@ class RcAdc(Component):
     def __init__(self, params: AdcParams, raw: bool):
         self.rc = rc.RCCircuit(params.R, params.C, params.Vdd, params.Vref)
         self.lin = rc.AdcLinearizer(self.rc, params.res, params.lut_width,
-                                    params.Hz)
+                                    params.Hz, params.thresh)
         self.raw = raw
 
         super().__init__({
@@ -143,7 +145,9 @@ class RcAdc(Component):
             with m.Else():
                 m.d.sync += zero_run.eq(0)
 
-            with m.If((zero_run == 2) & ~latched_cnt):
+            with m.If(((zero_run == 2) |
+                       (up_cnt == (self.lin.max_cnt - 1))) &
+                      ~latched_cnt):
                 m.d.sync += [
                     raw_val.eq(((up_cnt >> self.lin.clk_shift_amt) *
                                 self.lin.conv_factor) >>

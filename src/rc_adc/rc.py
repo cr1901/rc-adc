@@ -14,7 +14,7 @@ class RCCircuit:
         return self.charge_time(0, self.Vref)
 
     def drain_time_max(self):
-        return self.RC * 10
+        return self.RC * 6
 
     def charge_time(self, Vc_begin, Vc_end):
         return -self.RC*math.log(1 - ((Vc_end - Vc_begin) /
@@ -28,11 +28,12 @@ class RCCircuit:
 
 
 class AdcLinearizer:
-    def __init__(self, rc, res, lut_width, Hz):
+    def __init__(self, rc, res, lut_width, Hz, thresh=0.0):
         self.rc = rc
         self.res = res
         self.lut_width = lut_width
         self.Hz = Hz
+        self.thresh = thresh
 
         self.clk_shift_amt = self.max_cnt.bit_length() - self.lut_width
         self.conv_precision = 16 - lut_width
@@ -43,15 +44,44 @@ class AdcLinearizer:
 
         self.lut_entries = []
         self.raw_entries = []
+
+        thresh_digital = self.V_to_digital_theoretical(self.thresh)
+        thresh_start_idx = self.digital_to_idx(thresh_digital)
+
         for i in range(2**lut_width):
             sample_time = (self.rc.charge_time_max() * i) / 2**lut_width
             raw_entry = (self.rc.Vout(sample_time, Vc_begin=0) *
                          (1 / self.rc.Vref) *
                          (2**res))
-            entry = int(raw_entry)
+
+            # Account for the delay it takes for the (charging) negative side
+            # of the comparator to go "thresh" volts above the (measured)
+            # positive side. Generally, the time it takes for sense to go low
+            # will be longer than expected. Without a correction, the ADC will
+            # undershoot the actual voltage that's on the positive terminal.
+            #
+            # The actual voltages differences detected will naturally bottom
+            # out at around "thresh volts", with maybe a LSB or 2 of noise
+            # to represent 0V to "thresh volts". Attempt to stretch this region
+            # down to 0 volts by gradually backing off the bias at around
+            # the LUT index which should _theoretically_ correspond to "thresh"
+            # volts as if the comparator was ideal.
+            #
+            # Starting to back off the bias at the LUT index at "thresh" volts
+            # is somewhat arbitrary; feel free to experiment with different
+            # values. LUT indices "2" or "4" for an 8-bit ADC are also
+            # reasonable candidates (at the cost of some lower-end range- e.g.
+            # the ADC returning "0" during a triangle sweep doesn't seem to
+            # happen at "2" or "4").
+            if i >= thresh_start_idx:
+                bias = thresh_digital
+            else:
+                bias = int((thresh_digital * i) / thresh_start_idx)
+
+            entry = int(raw_entry) + bias
 
             self.raw_entries.append(raw_entry)
-            self.lut_entries.append(entry)
+            self.lut_entries.append(entry if entry < 2**res else 2**res - 1)
 
     @property
     def max_time(self):
@@ -79,13 +109,33 @@ class AdcLinearizer:
         """
         return int(math.ceil(self.Hz * self.discharge_time))
 
-    def cnt_to_digital(self, t):
-        idx = math.floor((t >> self.clk_shift_amt) * self.conv_factor) >> \
-              self.conv_precision
-        return self.lut_entries[idx]
+    def cnt_to_idx(self, c):
+        return math.floor((c >> self.clk_shift_amt) * self.conv_factor) >> \
+                          self.conv_precision
 
-    def cnt_to_V(self, t):
-        return self.cnt_to_digital(t) * (self.rc.Vref / (2**self.res))
+    def cnt_to_digital(self, c):
+        return self.lut_entries[self.cnt_to_idx(c)]
+
+    def cnt_to_V(self, c):
+        return self.cnt_to_digital(c) * (self.rc.Vref / (2**self.res))
 
     def V_to_digital(self, v):
-        return self.cnt_to_digital(int(self.Hz*self.rc.charge_time(0, v)))
+        return self.cnt_to_digital(self.V_to_cnt(v))
+
+    def V_to_digital_theoretical(self, v):
+        return round((2**self.res * v) / self.rc.Vref)
+
+    def V_to_idx(self, v):
+        return self.cnt_to_idx(self.V_to_cnt(v))
+
+    def V_to_cnt(self, v):
+        return math.ceil(int(self.Hz * self.rc.charge_time(0, v)))
+
+    def digital_to_cnt(self, d):
+        return self.V_to_cnt(self.digital_to_V(d))
+
+    def digital_to_idx(self, d):
+        return self.V_to_idx(self.digital_to_V(d))
+
+    def digital_to_V(self, d):
+        return (self.rc.Vref * d) / (2**self.res)

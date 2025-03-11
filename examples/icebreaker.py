@@ -126,8 +126,8 @@ if __name__ == "__main__":
     # Make sure to measure R and C_... The ADC is sensitive to its values!
     # R = 1e5
     # C_ = 1e-9
-    adc_params = AdcParams(R=0.996e5, C=0.893e-9, Vdd=3.3, Vref=(3.3 / 2), res=8,
-                           Hz=12e6, lut_width=9)
+    adc_params = AdcParams(R=0.996e5, C=0.893e-9, Vdd=3.3, Vref=(3.3 / 2),
+                           res=8, Hz=12e6, lut_width=9, thresh=0.060)
     adc = RcAdc(adc_params, raw=False)
 
     sweep_params = SweepParams(Vdd=3.3, Vref=3.3 / 2, clk_Hz=12e6,
