@@ -33,7 +33,8 @@ class AdcLinearizer:
         self.res = res
         self.lut_width = lut_width
         self.Hz = Hz
-        self.thresh = thresh
+        self.thresh = thresh  # Negation of the Offset Error- i.e. thresh
+        # of 0.060 mV means Offset Error of -0.060 mV.
 
         self.clk_shift_amt = self.max_cnt.bit_length() - self.lut_width
         self.conv_precision = 16 - lut_width
@@ -49,36 +50,34 @@ class AdcLinearizer:
         thresh_start_idx = self.digital_to_idx(thresh_digital)
 
         for i in range(2**lut_width):
-            sample_time = (self.rc.charge_time_max() * i) / 2**lut_width
+            # Account for the time saved from the (charging) negative side
+            # of the comparator to go within "thresh" volts below the
+            # (measured) positive side. Generally, the time it takes for sense
+            # to go low will be shorter than theoretical. Without a correction,
+            # the ADC will undershoot the actual voltage that's on the positive
+            # terminal. We shift the sample time so that 0 sample time
+            # corresponds to "thresh" volt difference.
+            sample_time = (self.rc.charge_time_max() * (i + thresh_start_idx)) / 2**lut_width
             raw_entry = (self.rc.Vout(sample_time, Vc_begin=0) *
                          (1 / self.rc.Vref) *
                          (2**res))
 
-            # Account for the delay it takes for the (charging) negative side
-            # of the comparator to go "thresh" volts above the (measured)
-            # positive side. Generally, the time it takes for sense to go low
-            # will be longer than expected. Without a correction, the ADC will
-            # undershoot the actual voltage that's on the positive terminal.
+            # Assuming sense doesn't go low before taking a measurement even
+            # begins, the actual voltages differences detected on the
+            # comparator will naturally bottom out at around "thresh volts".
+            # There will probably be a LSB or 2 of LUT entries left over to
+            # represent noise resulting in counts ("number of clock cycles for
+            # sense to go low") that corresponds the range 0V to
+            # "thresh volts". Attempt to stretch this region down to 0 volts.
             #
-            # The actual voltages differences detected will naturally bottom
-            # out at around "thresh volts", with maybe a LSB or 2 of noise
-            # to represent 0V to "thresh volts". Attempt to stretch this region
-            # down to 0 volts by gradually backing off the bias at around
-            # the LUT index which should _theoretically_ correspond to "thresh"
-            # volts as if the comparator was ideal.
-            #
-            # Starting to back off the bias at the LUT index at "thresh" volts
+            # Using the first 8 LUT entries to represent 0 to "thresh"
             # is somewhat arbitrary; feel free to experiment with different
-            # values. LUT indices "2" or "4" for an 8-bit ADC are also
-            # reasonable candidates (at the cost of some lower-end range- e.g.
-            # the ADC returning "0" during a triangle sweep doesn't seem to
-            # happen at "2" or "4").
-            if i >= thresh_start_idx:
-                bias = thresh_digital
+            # values. LUT indices "2" or "4", or even "0" for an 8-bit ADC are
+            # also reasonable candidates (at the cost of more lower-end range).
+            if i >= 8:
+                entry = int(raw_entry)
             else:
-                bias = int((thresh_digital * i) / thresh_start_idx)
-
-            entry = int(raw_entry) + bias
+                entry = int(raw_entry * i / 8)
 
             self.raw_entries.append(raw_entry)
             self.lut_entries.append(entry if entry < 2**res else 2**res - 1)
