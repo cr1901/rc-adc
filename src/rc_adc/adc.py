@@ -109,6 +109,8 @@ class RcAdc(Component):
 
         m.d.comb += self.ctrl.done.eq(done_stb | done_reg)
 
+        up_cnt_cpy = Signal(8)
+
         with m.If(state == RcAdc._State.DISCHARGE):
             m.d.comb += self.io.charge.eq(0)
             m.d.sync += down_cnt.eq(down_cnt + 1)
@@ -149,6 +151,7 @@ class RcAdc(Component):
                        (up_cnt == (self.lin.max_cnt - 1))) &
                       ~latched_cnt):
                 m.d.sync += [
+                    up_cnt_cpy.eq(up_cnt),
                     raw_val.eq(((up_cnt >> self.lin.clk_shift_amt) *
                                 self.lin.conv_factor) >>
                                (self.lin.conv_precision)),
@@ -165,6 +168,7 @@ class RcAdc(Component):
 
         # print(self.lin.lut_entries)
         if self.raw:
+            # m.d.comb += self.data.val.eq(up_cnt_cpy)
             m.d.comb += self.data.val.eq(raw_val[-8:])
         else:
             mem_data = MemoryData(shape=self.lin.res,
