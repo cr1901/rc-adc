@@ -127,8 +127,8 @@ if __name__ == "__main__":
     # R = 1e5
     # C_ = 1e-9
     adc_params = AdcParams(R=0.996e5, C=0.893e-9, Vdd=3.3, Vref=(3.3 / 2),
-                           res=8, Hz=12e6, lut_width=10, thresh=0.120)
-    adc = RcAdc(adc_params, raw=False)
+                           res=8, Hz=12e6, lut_width=9, thresh=0.120)
+    adc = RcAdc(adc_params, debug=True)
 
     sweep_params = SweepParams(Vdd=3.3, Vref=3.3 / 2, clk_Hz=12e6,
                                sweep_Hz=1)

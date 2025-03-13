@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from amaranth.lib.cdc import FFSynchronizer
 from amaranth.lib.data import StructLayout
 from amaranth.lib.enum import Enum
+from amaranth.utils import ceil_log2
 from amaranth.lib.wiring import Signature, In, Out, Component
 from amaranth import Module, Signal, unsigned
 from amaranth.lib.memory import MemoryData, Memory
@@ -26,6 +27,15 @@ def adc_ctrl_signature():
         "avail": In(1),
         # Charge/discharge cycle done.
         "done": In(1),
+    })
+
+
+def adc_debug_signature(cnt_width, lut_width):
+    return Signature({
+        # LUT index.
+        "idx": Out(lut_width),
+        # Count where sense goes low.
+        "cnt": Out(cnt_width),
     })
 
 
@@ -57,20 +67,25 @@ class RcAdc(Component):
         CHARGE = 0b10
         DISCHARGE = 0b11
 
-    def __init__(self, params: AdcParams, raw: bool):
+    def __init__(self, params: AdcParams, debug: bool):
         self.rc = rc.RCCircuit(params.R, params.C, params.Vdd, params.Vref)
         self.lin = rc.AdcLinearizer(self.rc, params.res, params.lut_width,
                                     params.Hz, params.thresh)
-        self.raw = raw
 
-        super().__init__({
+        sig = {
             "io": Out(Signature({
                 "sense": In(1),
                 "charge": Out(1)
             })),
             "data": Out(adc_value_layout(params)),
             "ctrl": In(adc_ctrl_signature())
-        })
+        }
+
+        if debug:
+            sig["debug"] = Out(adc_debug_signature(ceil_log2(self.lin.max_cnt),
+                                                   params.lut_width))
+
+        super().__init__(sig)
 
     @property
     def sample_rate(self):
@@ -109,7 +124,8 @@ class RcAdc(Component):
 
         m.d.comb += self.ctrl.done.eq(done_stb | done_reg)
 
-        up_cnt_cpy = Signal(8)
+        if self.debug:
+            up_cnt_cpy = Signal(8)
 
         with m.If(state == RcAdc._State.DISCHARGE):
             m.d.comb += self.io.charge.eq(0)
@@ -151,12 +167,14 @@ class RcAdc(Component):
                        (up_cnt == (self.lin.max_cnt - 1))) &
                       ~latched_cnt):
                 m.d.sync += [
-                    up_cnt_cpy.eq(up_cnt),
                     raw_val.eq(((up_cnt >> self.lin.clk_shift_amt) *
                                 self.lin.conv_factor) >>
                                (self.lin.conv_precision)),
                     latched_cnt.eq(1)
                 ]
+
+                if self.debug:
+                    m.d.sync += up_cnt_cpy.eq(up_cnt)
 
             with m.If(up_cnt == (self.lin.max_cnt - 1)):
                 # m.d.comb += self.out[1].eq(1)
@@ -167,23 +185,25 @@ class RcAdc(Component):
                 ]
 
         # print(self.lin.lut_entries)
-        if self.raw:
-            # m.d.comb += self.data.val.eq(up_cnt_cpy)
-            m.d.comb += self.data.val.eq(raw_val[-8:])
-        else:
-            mem_data = MemoryData(shape=self.lin.res,
-                                  depth=2**self.lin.lut_width,
-                                  init=self.lin.lut_entries)
-            mem = Memory(mem_data)
-            r_port = mem.read_port()
-
+        if self.debug:
             m.d.comb += [
-                r_port.en.eq(1),
-                r_port.addr.eq(raw_val)
+                self.debug.idx.eq(raw_val),
+                self.debug.cnt.eq(up_cnt_cpy)
             ]
 
-            m.d.comb += self.data.val.eq(r_port.data)
-            m.submodules += mem
+        mem_data = MemoryData(shape=self.lin.res,
+                              depth=2**self.lin.lut_width,
+                              init=self.lin.lut_entries)
+        mem = Memory(mem_data)
+        r_port = mem.read_port()
+
+        m.d.comb += [
+            r_port.en.eq(1),
+            r_port.addr.eq(raw_val)
+        ]
+
+        m.d.comb += self.data.val.eq(r_port.data)
+        m.submodules += mem
 
         # m.d.comb += [
         #     self.out[4].eq(latched_cnt),
