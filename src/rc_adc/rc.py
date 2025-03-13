@@ -27,6 +27,9 @@ class RCCircuit:
         return 1 / (self.charge_time_max() + self.drain_time_max())
 
 
+def sigmoid(mid, x):
+    return (1 / (1 + math.exp(-x + mid)))
+
 class AdcLinearizer:
     def __init__(self, rc, res, lut_width, Hz, thresh=0.0):
         self.rc = rc
@@ -56,7 +59,8 @@ class AdcLinearizer:
             # to go low will be shorter than theoretical. Without a correction,
             # the ADC will undershoot the actual voltage that's on the positive
             # terminal. We shift the sample time so that 0 sample time
-            # corresponds to "thresh" volt difference.
+            # corresponds to "thresh" volt difference. See below for how to
+            # handle voltage differences smaller than "thresh".
             sample_time = (self.rc.charge_time_max() * (i + thresh_start_idx)) / 2**lut_width
             raw_entry = (self.rc.Vout(sample_time, Vc_begin=0) *
                          (1 / self.rc.Vref) *
@@ -70,14 +74,14 @@ class AdcLinearizer:
             # sense to go low") that corresponds the range 0V to
             # "thresh volts". Attempt to stretch this region down to 0 volts.
             #
-            # Using the first 8 LUT entries to represent 0 to "thresh"
-            # is somewhat arbitrary; feel free to experiment with different
-            # values. LUT indices "2" or "4", or even "0" for an 8-bit ADC are
-            # also reasonable candidates (at the cost of more lower-end range).
-            if i >= 8:
-                entry = int(raw_entry)
+            # Using the first 1% of LUT entries (sigmoid midpoint of 0.05%)
+            # to represent 0 to "thresh" is somewhat arbitrary; feel free to
+            # experiment with different values. I've not experimented with
+            # stretching and shrinking the sigmoid yet.
+            if True:
+                entry = int(raw_entry * sigmoid(0.01 * (2**lut_width) / 2, i))
             else:
-                entry = int(raw_entry * i / 8)
+                entry = int(raw_entry)
 
             self.raw_entries.append(raw_entry)
             self.lut_entries.append(entry if entry < 2**res else 2**res - 1)
