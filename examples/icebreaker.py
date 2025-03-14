@@ -1,11 +1,18 @@
+# ruff: noqa: F405
+
 import math
 import subprocess
 
-from amaranth import Elaboratable, Module, Cat, Signal, C
+from amaranth import Elaboratable, Memory, Module, Cat, Signal, C
+from amaranth.lib.memory import Memory, MemoryData
 from amaranth_boards.icebreaker import ICEBreakerPlatform
 from amaranth.build import Resource, Pins, Attrs, Subsignal, DiffPairs
 from amaranth_boards.resources import LEDResources
 from amaranth_stdio.serial import AsyncSerial
+
+from boneless.gateware import CoreFSM
+from boneless.arch.opcode import Instr
+from boneless.arch.opcode import *
 
 from rc_adc.adc import RcAdc, AdcParams
 from rc_adc.dac import DacSweep, SweepParams
@@ -119,6 +126,128 @@ class UART(Elaboratable):
         return m
 
 
+UART_RX_RDY = 0
+UART_RX_DATA = 1
+UART_TX_ACK = 2
+UART_TX_DATA = 3
+SAMPLE_RDY = 4
+DAC_VAL_COPY = 5
+ADC_VAL_COPY = 6
+ADC_IDX_COPY = 7
+ADC_CNT_COPY = 8
+
+
+def firmware(sample_rate):
+    """Driver program to synchronize and load DAC/ADC samples over UART."""
+    STAGES = ["idle",
+              "load_dac",
+              "load_adc",
+              "wait_or_finish"
+    ]
+
+    ADC_TYPE = ["val", "idx_or_cmp", "idx_or_cmp", "none"]
+
+    def jump_table(*args):
+        def relocate(resolver):
+            return [resolver(arg) for arg in args]
+        return relocate
+
+    STAGE = R1
+    DAC_VAL = R4
+    ADC_VAL = R5
+    XFER_TYPE = R6
+    # JMPTAB = R2
+    CNT = R7
+
+    return [  # noqa: DOC201
+        MOVI(STAGE, 0),
+        MOVI(CNT, 0),
+    L("loop"),
+        JST(STAGE, "jmptab"),
+
+    L("jmptab"),
+    jump_table(*STAGES),
+
+    L("idle"),
+        LDXA(R2, UART_RX_RDY),
+        LDXA(R3, SAMPLE_RDY),
+        AND(R2, R2, R3),
+        ANDI(R2, R2, 1),
+        BZ1("idle"),
+        LDXA(XFER_TYPE, UART_RX_DATA),
+        LDXA(DAC_VAL, DAC_VAL_COPY),
+        # Keep xfer type around so we know whether to send one byte or two
+        # for each xfer.
+        LDX(ADC_VAL, XFER_TYPE, ADC_VAL_COPY),
+        MOVI(STAGE, STAGES.index("load_dac")),
+        J("loop"),
+
+    L("load_dac"),
+        LDXA(R2, UART_TX_ACK),
+        ANDI(R2, R2, 1),
+        BZ1("load_dac"),
+        STXA(DAC_VAL, UART_TX_DATA),
+        MOVI(STAGE, STAGES.index("load_adc")),
+        J("loop"),
+
+    L("load_adc"),
+        ANDI(R2, XFER_TYPE, 0b00000011),
+        JST(R2, "adc_jmptab"),
+
+    L("adc_jmptab"),
+        jump_table(*ADC_TYPE),
+
+    L("val"),
+        LDXA(R2, UART_TX_ACK),
+        ANDI(R2, R2, 1),
+        BZ1("val"),
+        STXA(ADC_VAL, UART_TX_DATA),
+        MOVI(STAGE, STAGES.index("wait_or_finish")),
+        J("loop"),
+
+    L("idx_or_cmp"),
+        LDXA(R2, UART_TX_ACK),
+        ANDI(R2, R2, 1),
+        BZ1("idx_or_cmp"),
+        STXA(ADC_VAL, UART_TX_DATA),
+    L("second_byte"),
+        LDXA(R2, UART_TX_ACK),
+        ANDI(R2, R2, 1),
+        BZ1("second_byte"),
+        SRLI(ADC_VAL, ADC_VAL, 8),
+        STXA(ADC_VAL, UART_TX_DATA),
+        MOVI(STAGE, STAGES.index("wait_or_finish")),
+        J("loop"),
+
+    L("none"),
+        MOVI(STAGE, STAGES.index("wait_or_finish")),
+        J("loop"),
+
+    L("wait_or_finish"),
+        ADDI(CNT, CNT, 1),
+        CMPI(CNT, sample_rate),
+        BZ1("finish"),
+
+    L("wait"),
+        LDXA(R2, SAMPLE_RDY),
+        ANDI(R2, R2, 1),
+        BZ1("wait"),
+
+        LDXA(XFER_TYPE, UART_RX_DATA),
+        LDXA(DAC_VAL, DAC_VAL_COPY),
+        # Keep xfer type around so we know whether to send one byte or two
+        # for each xfer.
+        LDX(ADC_VAL, XFER_TYPE, ADC_VAL_COPY),
+        MOVI(STAGE, STAGES.index("load_dac")),
+        J("loop"),
+
+    L("finish"),
+        MOVI(CNT, 0),
+        MOVI(STAGE, STAGES.index("idle")),
+        J("loop"),
+    ]
+
+
 if __name__ == "__main__":
     plat = ICEBreakerPlatform()
     plat.add_resources([adc_, dac_, *leds_, debug_])
@@ -137,8 +266,14 @@ if __name__ == "__main__":
     uart = UART(divisor=int(12e6 // 115200))
     uart_pins = plat.request("uart")
 
+    firm_bytes = Instr.assemble(firmware(
+        sample_rate=math.ceil(adc.sample_rate)))
+    print(Instr.disassemble(firm_bytes))
+    firm_data = MemoryData(shape=16, depth=256, init=firm_bytes)
+    cpu = CoreFSM(mem_data=firm_data)
+
     top = Module()
-    top.submodules += adc, sweep, uart
+    top.submodules += adc, sweep, uart, cpu
 
     leds = Cat(plat.request("led", i).o for i in range(2, 10))
     adc_pins = plat.request("adc")
@@ -156,53 +291,52 @@ if __name__ == "__main__":
         uart.rx_i.eq(uart_pins.rx.i)
     ]
 
-    stage = Signal(3)
+    sample_rdy = Signal(1)
     adc_val = Signal(8)
+    adc_idx = Signal(adc_params.lut_width)
+    adc_cnt = Signal(range(adc.lin.max_cnt + 1))
     dac_val = Signal(8)
-    sample_count = Signal(range(math.ceil(adc.sample_rate)))
-    sample_en = Signal(1)
 
-    with top.If(sample_en):
-        top.d.sync += sample_count.eq(sample_count + 1)
+    with top.If(cpu.o_ext_we):
+        with top.Switch(cpu.o_bus_addr):
+            with top.Case(UART_TX_DATA):
+                top.d.comb += [
+                    uart.tx_data.eq(cpu.o_ext_data),
+                    uart.tx_rdy.eq(1)
+                ]
 
-    with top.If(uart.rx_rdy & adc.ctrl.done & (stage == 0)):
-        top.d.comb += [
-            sample_en.eq(1),
-            uart.rx_ack.eq(1)
-        ]
+    with top.If(cpu.o_ext_re):
+        with top.Switch(cpu.o_bus_addr):
+            with top.Case(UART_RX_RDY):
+                top.d.sync += cpu.i_ext_data.eq(uart.rx_rdy)
+            with top.Case(UART_RX_DATA):
+                top.d.sync += cpu.i_ext_data.eq(uart.rx_data)
+                top.d.comb += uart.rx_ack.eq(1)
+            with top.Case(UART_TX_ACK):
+                top.d.sync += cpu.i_ext_data.eq(uart.tx_ack)
+            with top.Case(SAMPLE_RDY):
+                top.d.sync += [
+                    cpu.i_ext_data.eq(sample_rdy),
+                    sample_rdy.eq(0)
+                ]
+            with top.Case(DAC_VAL_COPY):
+                top.d.sync += cpu.i_ext_data.eq(dac_val)
+            with top.Case(ADC_VAL_COPY):
+                top.d.sync += cpu.i_ext_data.eq(adc_val)
+            with top.Case(ADC_IDX_COPY):
+                top.d.sync += cpu.i_ext_data.eq(adc_idx)
+            with top.Case(ADC_CNT_COPY):
+                top.d.sync += cpu.i_ext_data.eq(adc_cnt)
+
+    # ADC done is a strobe, so latch all the data we need in copies.
+    with top.If(adc.ctrl.done):
         top.d.sync += [
             dac_val.eq(sweep.dac),
             adc_val.eq(adc.data.val),
-            stage.eq(1)
+            adc_idx.eq(adc.debug.idx),
+            adc_cnt.eq(adc.debug.cnt),
+            sample_rdy.eq(1)
         ]
-
-    with top.Elif(stage == 1):
-        top.d.comb += [
-            uart.tx_data.eq(dac_val),
-            uart.tx_rdy.eq(1)
-        ]
-        top.d.sync += stage.eq(2)
-
-    with top.Elif(uart.tx_ack & (stage == 2)):
-        top.d.comb += [
-            uart.tx_data.eq(adc_val),
-            uart.tx_rdy.eq(1)
-        ]
-        top.d.sync += stage.eq(3)
-
-    with top.Elif(adc.ctrl.done & (stage == 3)):
-        with top.If(sample_count == (math.ceil(adc.sample_rate) - 1)):
-            top.d.sync += [
-                stage.eq(0),
-                sample_count.eq(0)
-            ]
-        with top.Else():
-            top.d.comb += sample_en.eq(1)
-            top.d.sync += [
-                dac_val.eq(sweep.dac),
-                adc_val.eq(adc.data.val),
-                stage.eq(1)
-            ]
 
     print(adc.sample_rate)
     print(adc.sample_rate_theoretical)

@@ -5,7 +5,7 @@
 groups = ["default", "dev", "doc", "examples", "lint", "yowasp"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:bd11de8cfa34fc073d7280a351515989fbc7c7602539529a8c1a64c1043e0b6a"
+content_hash = "sha256:cc09f64d409055fd1cb9c4b83e1ebfc701c74c6c84c54743f53d61b8ed4cb342"
 
 [[metadata.targets]]
 requires_python = ">=3.9"
@@ -133,6 +133,19 @@ dependencies = [
 files = [
     {file = "babel-2.17.0-py3-none-any.whl", hash = "sha256:4d0b53093fdfb4b21c92b5213dba5a1b23885afa8383709427046b21c366e5f2"},
     {file = "babel-2.17.0.tar.gz", hash = "sha256:0c54cffb19f690cdcc52a3b50bcbf71e07a808d1c80d549f2459b9d2cf0afb9d"},
+]
+
+[[package]]
+name = "boneless-cpu"
+version = "0.1.dev172"
+requires_python = "~=3.8"
+git = "https://github.com/whitequark/Boneless-CPU.git"
+revision = "951bd07a0b3d47e8d659b92a616c5ce4c22763ac"
+summary = "Resource-efficient 16-bit CPU architecture for FPGA control plane"
+groups = ["examples"]
+dependencies = [
+    "amaranth~=0.5.4",
+    "parse~=1.12",
 ]
 
 [[package]]
@@ -549,6 +562,16 @@ groups = ["dev", "doc"]
 files = [
     {file = "packaging-24.2-py3-none-any.whl", hash = "sha256:09abb1bccd265c01f4a3aa3f7a7db064b36514d2cba19a2f694fe6150451a759"},
     {file = "packaging-24.2.tar.gz", hash = "sha256:c228a6dc5e932d346bc5739379109d49e8853dd8223571c7c5b55260edc0b97f"},
+]
+
+[[package]]
+name = "parse"
+version = "1.20.2"
+summary = "parse() is the opposite of format()"
+groups = ["examples"]
+files = [
+    {file = "parse-1.20.2-py2.py3-none-any.whl", hash = "sha256:967095588cb802add9177d0c0b6133b5ba33b1ea9007ca800e526f42a85af558"},
+    {file = "parse-1.20.2.tar.gz", hash = "sha256:b41d604d16503c79d81af5165155c0b20f6c8d6c559efa66b4b695c3e5a0a0ce"},
 ]
 
 [[package]]

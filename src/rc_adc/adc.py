@@ -125,7 +125,7 @@ class RcAdc(Component):
         m.d.comb += self.ctrl.done.eq(done_stb | done_reg)
 
         if self.debug:
-            up_cnt_cpy = Signal(8)
+            up_cnt_cpy = Signal(range(self.lin.max_cnt))
 
         with m.If(state == RcAdc._State.DISCHARGE):
             m.d.comb += self.io.charge.eq(0)

@@ -104,6 +104,7 @@ examples = [
     "amaranth-soc @ git+https://github.com/amaranth-lang/amaranth-soc",
     "amaranth-boards @ git+https://github.com/amaranth-lang/amaranth-boards",
     "amaranth-stdio @ git+https://github.com/amaranth-lang/amaranth-stdio",
+    "boneless-cpu @ git+https://github.com/whitequark/Boneless-CPU.git",
 ]
 lint = [
     "ruff>=0.6.7",
